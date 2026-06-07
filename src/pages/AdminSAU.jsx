@@ -105,6 +105,17 @@ function generarInsights(clientes, statsMap) {
   return insights.sort((a, b) => a.p - b.p)
 }
 
+// ── Módulo chip ───────────────────────────────────────────────────
+function ModuloChip({ id }) {
+  const mod = MODULOS.find(m => m.id === id)
+  if (!mod) return null
+  return (
+    <span className="inline-flex items-center gap-1 bg-emerald-500/10 text-emerald-400 text-xs font-bold px-2 py-1 rounded-full ring-1 ring-emerald-500/20">
+      {mod.icon} {mod.titulo.split(' ')[0]}
+    </span>
+  )
+}
+
 // ── Card de consulta con grabador de respuesta ────────────────────
 function ConsultaCard({ c, onActualizada }) {
   const [fase,        setFase]        = useState('idle') // idle | listo | grabando | grabado | guardando
@@ -112,6 +123,9 @@ function ConsultaCard({ c, onActualizada }) {
   const [blobResp,    setBlobResp]    = useState(null)
   const [urlResp,     setUrlResp]     = useState(null)
   const [linkCopiado, setLinkCopiado] = useState(false)
+  const [analizando,  setAnalizando]  = useState(false)
+  const [analisisLocal, setAnalisisLocal] = useState(c.analisis || null)
+  const [scriptCopiado, setScriptCopiado] = useState(false)
 
   const mrRef     = useRef(null)
   const streamRef = useRef(null)
@@ -129,6 +143,30 @@ function ConsultaCard({ c, onActualizada }) {
     }
     return () => clearInterval(timer.current)
   }, [fase])
+
+  async function analizarConsulta() {
+    setAnalizando(true)
+    try {
+      const { data, error } = await supabase.functions.invoke('analizar-consulta', {
+        body: { consulta_id: c.id }
+      })
+      if (error) throw error
+      if (data?.analisis) setAnalisisLocal(data.analisis)
+      onActualizada()
+    } catch (e) {
+      console.error(e)
+      alert('Error al analizar. Revisá que la API key esté configurada.')
+    } finally {
+      setAnalizando(false)
+    }
+  }
+
+  async function copiarScript() {
+    if (!analisisLocal?.script_para_facundo) return
+    await navigator.clipboard.writeText(analisisLocal.script_para_facundo)
+    setScriptCopiado(true)
+    setTimeout(() => setScriptCopiado(false), 2000)
+  }
 
   async function iniciarGrabacion() {
     try {
@@ -213,6 +251,90 @@ function ConsultaCard({ c, onActualizada }) {
       <div className="px-4 pb-3">
         <p className="text-zinc-600 text-[0.6rem] font-semibold uppercase tracking-widest mb-1.5">🎤 Consulta del cliente</p>
         <audio src={c.audio_url} controls className="w-full rounded-xl" style={{ colorScheme:'dark' }} />
+      </div>
+
+      {/* Análisis IA */}
+      <div className="mx-4 mb-3">
+        {analisisLocal ? (
+          <div className="bg-zinc-800/60 border border-zinc-700 rounded-2xl p-4 grid gap-3">
+            <div className="flex items-center justify-between">
+              <p className="text-xs text-zinc-500 font-semibold uppercase tracking-widest">🤖 Análisis IA</p>
+              <button onClick={analizarConsulta} disabled={analizando}
+                className="text-[0.6rem] text-zinc-600 hover:text-zinc-400 transition-colors">
+                {analizando ? 'Analizando…' : 'Re-analizar'}
+              </button>
+            </div>
+
+            {/* Problema */}
+            <div>
+              <p className="text-zinc-500 text-[0.6rem] font-semibold uppercase tracking-widest mb-1">Problema</p>
+              <p className="text-white text-sm font-semibold leading-snug">{analisisLocal.problema_principal}</p>
+            </div>
+
+            {/* Puntos de dolor */}
+            {analisisLocal.puntos_de_dolor?.length > 0 && (
+              <div className="grid gap-1">
+                {analisisLocal.puntos_de_dolor.map((d, i) => (
+                  <p key={i} className="text-zinc-400 text-xs flex gap-2">
+                    <span className="text-red-500 shrink-0">•</span>{d}
+                  </p>
+                ))}
+              </div>
+            )}
+
+            {/* Módulos */}
+            {analisisLocal.modulos_que_resuelven?.length > 0 && (
+              <div>
+                <p className="text-zinc-500 text-[0.6rem] font-semibold uppercase tracking-widest mb-1.5">SAU lo resuelve con</p>
+                <div className="flex flex-wrap gap-1.5">
+                  {analisisLocal.modulos_que_resuelven.map(id => <ModuloChip key={id} id={id} />)}
+                </div>
+              </div>
+            )}
+
+            {/* Lo que no cubrimos */}
+            {analisisLocal.lo_que_no_cubrimos && (
+              <p className="text-amber-600 text-xs flex gap-2">
+                <span className="shrink-0">⚠️</span>
+                <span>No cubrimos: {analisisLocal.lo_que_no_cubrimos}</span>
+              </p>
+            )}
+
+            {/* Script para Facundo */}
+            {analisisLocal.script_para_facundo && (
+              <div>
+                <div className="flex items-center justify-between mb-1.5">
+                  <p className="text-zinc-500 text-[0.6rem] font-semibold uppercase tracking-widest">📝 Tu script</p>
+                  <button onClick={copiarScript}
+                    className={`text-[0.6rem] font-bold transition-colors ${scriptCopiado ? 'text-emerald-400' : 'text-zinc-500 hover:text-zinc-300'}`}>
+                    {scriptCopiado ? '✓ Copiado' : 'Copiar'}
+                  </button>
+                </div>
+                <div className="bg-zinc-900 border border-emerald-500/20 rounded-xl p-3">
+                  <p className="text-emerald-300 text-sm leading-relaxed italic">
+                    "{analisisLocal.script_para_facundo}"
+                  </p>
+                </div>
+              </div>
+            )}
+          </div>
+
+        ) : (
+          <button onClick={analizarConsulta} disabled={analizando}
+            className="w-full py-3 rounded-2xl bg-zinc-800/60 border border-zinc-700 text-sm font-bold flex items-center justify-center gap-2 active:scale-95 transition-all hover:border-zinc-600 disabled:opacity-50">
+            {analizando ? (
+              <>
+                <div className="w-4 h-4 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+                <span className="text-zinc-400">Analizando audio...</span>
+              </>
+            ) : (
+              <>
+                <span>🤖</span>
+                <span className="text-zinc-300">Analizar con IA</span>
+              </>
+            )}
+          </button>
+        )}
       </div>
 
       <div className="mx-4 h-px bg-zinc-800 mb-3" />
