@@ -19,6 +19,7 @@ import Unirse from './pages/Unirse'
 import AdminSAU from './pages/AdminSAU'
 import Landing from './pages/Landing'
 import Respuesta from './pages/Respuesta'
+import Importar from './pages/Importar'
 import KioscoFiado from './App' // prototipo de fiado (Kiosco de Carlitos), se conserva intacto
 
 function Splash() {
@@ -89,6 +90,7 @@ export default function AppRouter() {
             <Route path="/contadora" element={<Contadora />} />
             <Route path="/contadora/:empresaId" element={<ContadoraEmpresa />} />
             <Route path="/perfil" element={<Perfil />} />
+            <Route path="/importar" element={<Importar />} />
           </Route>
 
           <Route path="/sau-admin" element={<ProtegidoAdmin><AdminSAU /></ProtegidoAdmin>} />

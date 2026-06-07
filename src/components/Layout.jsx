@@ -31,6 +31,7 @@ const TODAS_LAS_TABS = [
   { to: '/stock',     icon: '📦', label: 'Stock',     end: false, permiso: 'ventas.ver',        modulo: 'stock' },
   { to: '/fiado',     icon: '📒', label: 'Fiado',     end: false, permiso: 'ventas.crear',      modulo: 'fiado' },
   { to: '/contadora', icon: '📊', label: 'Clientes',  end: false, permiso: 'contadora.panel',  modulo: null },
+  { to: '/importar',  icon: '🔄', label: 'Importar',  end: false, permiso: 'empresa.admin',     modulo: null },
 ]
 
 // En estas rutas mostramos botón volver (pantallas de acción o detalle)
