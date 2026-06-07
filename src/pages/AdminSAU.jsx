@@ -1,8 +1,10 @@
-import { useEffect, useState, useMemo } from 'react'
+import { useEffect, useState, useMemo, useRef } from 'react'
 import { supabase } from '../lib/supabase'
 import { useAuth } from '../context/AuthContext'
-import { formatPesos } from '../lib/format'
 import { MODULOS } from '../lib/modulos'
+
+// ── Config ────────────────────────────────────────────────────────
+const BASE_URL = 'https://kiosco-carlitos-qkag.vercel.app'
 
 // ── Animación flotante ────────────────────────────────────────────
 const FLOAT_STYLE = `
@@ -12,6 +14,26 @@ const FLOAT_STYLE = `
   }
   .burbuja { animation: float 3.5s ease-in-out infinite; }
 `
+
+// ── Audio helpers ─────────────────────────────────────────────────
+function getMimeType() {
+  if (typeof MediaRecorder === 'undefined') return 'audio/mp4'
+  const tipos = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4']
+  for (const t of tipos) {
+    if (MediaRecorder.isTypeSupported(t)) return t
+  }
+  return 'audio/mp4'
+}
+function getExt(mime) {
+  if (mime.includes('webm')) return 'webm'
+  if (mime.includes('ogg'))  return 'ogg'
+  return 'mp4'
+}
+function formatTiempo(seg) {
+  const m = Math.floor(seg / 60).toString().padStart(2, '0')
+  const s = (seg % 60).toString().padStart(2, '0')
+  return `${m}:${s}`
+}
 
 // ── Helpers ───────────────────────────────────────────────────────
 function iniciales(nombre) {
@@ -33,24 +55,29 @@ function saludo() {
   return 'Buenas noches'
 }
 
+// ── Estilos ───────────────────────────────────────────────────────
 const BURBUJA = {
-  activo:     { grad: 'from-emerald-400 to-emerald-600', glow: 'shadow-emerald-500/50', ring: 'ring-emerald-300' },
-  gratuito:   { grad: 'from-amber-300   to-amber-500',   glow: 'shadow-amber-400/50',   ring: 'ring-amber-200'   },
-  atrasado:   { grad: 'from-red-400     to-red-600',     glow: 'shadow-red-500/50',     ring: 'ring-red-300'     },
-  suspendido: { grad: 'from-zinc-500    to-zinc-700',    glow: 'shadow-zinc-500/40',    ring: 'ring-zinc-400'    },
+  activo:     { grad: 'from-emerald-400 to-emerald-600', glow: 'shadow-emerald-500/50' },
+  gratuito:   { grad: 'from-amber-300   to-amber-500',   glow: 'shadow-amber-400/50'   },
+  atrasado:   { grad: 'from-red-400     to-red-600',     glow: 'shadow-red-500/50'     },
+  suspendido: { grad: 'from-zinc-500    to-zinc-700',    glow: 'shadow-zinc-500/40'    },
 }
-
 const SUSCRIPCION = {
   gratuito:   { label: 'Gratuito',   bg: 'bg-amber-50',   text: 'text-amber-700',   dot: 'bg-amber-400'   },
   activo:     { label: 'Al día',     bg: 'bg-emerald-50', text: 'text-emerald-700', dot: 'bg-emerald-500' },
   atrasado:   { label: 'Atrasado',   bg: 'bg-red-50',     text: 'text-red-600',     dot: 'bg-red-500'     },
   suspendido: { label: 'Suspendido', bg: 'bg-zinc-100',   text: 'text-zinc-500',    dot: 'bg-zinc-400'    },
 }
+const INSIGHT_ESTILO = {
+  riesgo:      { border: 'border-l-red-500',     bg: 'bg-red-950/40',     badge: 'bg-red-500/20 text-red-400'        },
+  oportunidad: { border: 'border-l-amber-400',   bg: 'bg-amber-950/40',   badge: 'bg-amber-500/20 text-amber-400'    },
+  win:         { border: 'border-l-emerald-500', bg: 'bg-emerald-950/40', badge: 'bg-emerald-500/20 text-emerald-400'},
+  info:        { border: 'border-l-indigo-400',  bg: 'bg-indigo-950/40',  badge: 'bg-indigo-500/20 text-indigo-400'  },
+}
 
-// ── Generador de insights tipo Jarvis ─────────────────────────────
+// ── Insights Jarvis ───────────────────────────────────────────────
 function generarInsights(clientes, statsMap) {
   const insights = []
-
   clientes.forEach(c => {
     const stats  = statsMap[c.id]
     const nombre = c.nombre_fantasia || c.razon_social
@@ -59,54 +86,263 @@ function generarInsights(clientes, statsMap) {
       ? Math.floor((Date.now() - new Date(stats.ultima_actividad).getTime()) / 86400000)
       : 999
 
-    // 🔴 Riesgos
-    if (dias === 999) {
-      insights.push({ tipo:'riesgo', emoji:'🔴', titulo:`${nombre} nunca usó el sistema`, sub:'Hay que activarlo cuanto antes', accion:'Activar', cid:c.id, p:0 })
-    } else if (dias > 14) {
-      insights.push({ tipo:'riesgo', emoji:'🔴', titulo:`${nombre} lleva ${dias} días sin actividad`, sub:'Riesgo de abandono — contactar', accion:'Llamar', cid:c.id, p:0 })
-    }
+    if (dias === 999)   insights.push({ tipo:'riesgo',      emoji:'🔴', titulo:`${nombre} nunca usó el sistema`,            sub:'Hay que activarlo cuanto antes',                    accion:'Activar', cid:c.id, p:0 })
+    else if (dias > 14) insights.push({ tipo:'riesgo',      emoji:'🔴', titulo:`${nombre} lleva ${dias} días sin actividad`, sub:'Riesgo de abandono',                               accion:'Llamar',  cid:c.id, p:0 })
 
-    // 🟢 Wins
-    if (stats?.crecimiento > 20) {
-      insights.push({ tipo:'win', emoji:'🟢', titulo:`${nombre} creció ${stats.crecimiento}% este mes`, sub:'Buen momento para hablarle de nuevas funciones', accion:'Ver', cid:c.id, p:2 })
-    }
+    if (stats?.crecimiento > 20)
+      insights.push({ tipo:'win', emoji:'🟢', titulo:`${nombre} creció ${stats.crecimiento}% este mes`, sub:'Buen momento para ofrecerle más', accion:'Ver', cid:c.id, p:2 })
 
-    // 🟡 Oportunidades de módulos
-    if (mods.includes('ventas') && !mods.includes('fiado') && (stats?.ventas_mes || 0) > 5) {
-      insights.push({ tipo:'oportunidad', emoji:'🟡', titulo:`${nombre} no usa Fiado`, sub:`Tiene ${stats.ventas_mes} ventas este mes — probablemente vende a cuenta`, accion:'Activar', cid:c.id, p:1 })
-    }
-    if (mods.includes('ventas') && !mods.includes('stock') && (stats?.ventas_mes || 0) > 10) {
-      insights.push({ tipo:'oportunidad', emoji:'🟡', titulo:`${nombre} no usa Stock`, sub:'Con ese volumen de ventas el inventario los ayudaría', accion:'Activar', cid:c.id, p:1 })
-    }
-    if (mods.includes('ventas') && !mods.includes('compras') && (stats?.ventas_mes || 0) > 8) {
-      insights.push({ tipo:'oportunidad', emoji:'🟡', titulo:`${nombre} no registra sus compras`, sub:'Sin compras no pueden ver el margen real del negocio', accion:'Activar', cid:c.id, p:1 })
-    }
+    if (mods.includes('ventas') && !mods.includes('fiado') && (stats?.ventas_mes||0) > 5)
+      insights.push({ tipo:'oportunidad', emoji:'🟡', titulo:`${nombre} no usa Fiado`, sub:`${stats.ventas_mes} ventas/mes — probablemente vende a cuenta`, accion:'Activar', cid:c.id, p:1 })
+    if (mods.includes('ventas') && !mods.includes('stock') && (stats?.ventas_mes||0) > 10)
+      insights.push({ tipo:'oportunidad', emoji:'🟡', titulo:`${nombre} no controla stock`, sub:'Con ese volumen el inventario los ayudaría', accion:'Activar', cid:c.id, p:1 })
+    if (mods.includes('ventas') && !mods.includes('compras') && (stats?.ventas_mes||0) > 8)
+      insights.push({ tipo:'oportunidad', emoji:'🟡', titulo:`${nombre} no registra compras`, sub:'Sin compras no pueden ver el margen real', accion:'Activar', cid:c.id, p:1 })
 
-    // 📊 Uso bajo del sistema
-    const adopcion = mods.length / MODULOS.length
-    if (adopcion < 0.4 && dias < 30) {
-      insights.push({ tipo:'info', emoji:'📊', titulo:`${nombre} usa solo ${mods.length} de ${MODULOS.length} módulos`, sub:'El sistema puede darles mucho más valor', accion:'Revisar', cid:c.id, p:2 })
-    }
+    if ((mods.length / MODULOS.length) < 0.4 && dias < 30)
+      insights.push({ tipo:'info', emoji:'📊', titulo:`${nombre} usa solo ${mods.length}/${MODULOS.length} módulos`, sub:'El sistema puede darles mucho más valor', accion:'Revisar', cid:c.id, p:2 })
   })
-
   return insights.sort((a, b) => a.p - b.p)
 }
 
-// ── Colores de insight ────────────────────────────────────────────
-const INSIGHT_ESTILO = {
-  riesgo:      { border: 'border-l-red-500',     bg: 'bg-red-950/40',    badge: 'bg-red-500/20 text-red-400'     },
-  oportunidad: { border: 'border-l-amber-400',   bg: 'bg-amber-950/40',  badge: 'bg-amber-500/20 text-amber-400' },
-  win:         { border: 'border-l-emerald-500', bg: 'bg-emerald-950/40',badge: 'bg-emerald-500/20 text-emerald-400' },
-  info:        { border: 'border-l-indigo-400',  bg: 'bg-indigo-950/40', badge: 'bg-indigo-500/20 text-indigo-400'   },
+// ── Card de consulta con grabador de respuesta ────────────────────
+function ConsultaCard({ c, onActualizada }) {
+  const [fase,        setFase]        = useState('idle') // idle | listo | grabando | grabado | guardando
+  const [segundos,    setSegundos]    = useState(0)
+  const [blobResp,    setBlobResp]    = useState(null)
+  const [urlResp,     setUrlResp]     = useState(null)
+  const [linkCopiado, setLinkCopiado] = useState(false)
+
+  const mrRef     = useRef(null)
+  const streamRef = useRef(null)
+  const chunks    = useRef([])
+  const timer     = useRef(null)
+  const mimeType  = getMimeType()
+  const ext       = getExt(mimeType)
+
+  useEffect(() => {
+    if (fase === 'grabando') {
+      timer.current = setInterval(() => setSegundos(s => s + 1), 1000)
+    } else {
+      clearInterval(timer.current)
+      if (fase !== 'grabado') setSegundos(0)
+    }
+    return () => clearInterval(timer.current)
+  }, [fase])
+
+  async function iniciarGrabacion() {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
+      streamRef.current = stream
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {})
+      mrRef.current = mr
+      chunks.current = []
+      mr.ondataavailable = e => { if (e.data.size > 0) chunks.current.push(e.data) }
+      mr.onstop = () => {
+        const blob = new Blob(chunks.current, { type: mimeType || 'audio/mp4' })
+        setBlobResp(blob)
+        setUrlResp(URL.createObjectURL(blob))
+        setFase('grabado')
+        stream.getTracks().forEach(t => t.stop())
+      }
+      mr.start()
+      setFase('grabando')
+    } catch { alert('No se pudo acceder al micrófono') }
+  }
+
+  async function guardar() {
+    if (!blobResp) return
+    setFase('guardando')
+    const fileName = `respuestas/resp-${c.id}-${Date.now()}.${ext}`
+    const { error: upErr } = await supabase.storage
+      .from('consultas')
+      .upload(fileName, blobResp, { contentType: mimeType || 'audio/mp4' })
+    if (upErr) { alert('Error al subir'); setFase('grabado'); return }
+
+    const { data: { publicUrl } } = supabase.storage.from('consultas').getPublicUrl(fileName)
+
+    await supabase.from('consulta_sau').update({
+      audio_respuesta_url: publicUrl,
+      estado: 'en_proceso',
+    }).eq('id', c.id)
+
+    setFase('idle')
+    setBlobResp(null); setUrlResp(null)
+    onActualizada()
+  }
+
+  async function cambiarEstado(estado) {
+    await supabase.from('consulta_sau').update({ estado }).eq('id', c.id)
+    onActualizada()
+  }
+
+  async function copiarLink() {
+    await navigator.clipboard.writeText(`${BASE_URL}/r/${c.id}`)
+    setLinkCopiado(true)
+    setTimeout(() => setLinkCopiado(false), 2000)
+  }
+
+  const primerNombre = c.nombre ? c.nombre.split(' ')[0] : null
+  const waMsg = encodeURIComponent(
+    `Hola${primerNombre ? ` ${primerNombre}` : ''}! 👋 Soy Facundo de SAU.\n` +
+    `Escuché tu consulta y te grabé una respuesta personal.\n` +
+    `Escuchala acá 👇\n\n${BASE_URL}/r/${c.id}\n\n` +
+    `— SAU · Sistema de Administración Unificado`
+  )
+
+  return (
+    <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+      {/* Header */}
+      <div className="flex justify-between items-start px-4 pt-4 pb-3">
+        <div>
+          <p className="text-white font-bold text-sm">{c.nombre || 'Anónimo'}</p>
+          <p className="text-zinc-600 text-xs mt-0.5">
+            {c.telefono && `${c.telefono} · `}
+            {new Date(c.created_at).toLocaleDateString('es-AR')}
+          </p>
+        </div>
+        <select value={c.estado} onChange={e => cambiarEstado(e.target.value)}
+          className="text-xs font-bold px-2 py-1 rounded-full bg-zinc-800 border border-zinc-700 outline-none text-zinc-400">
+          <option value="nueva">🔴 Nueva</option>
+          <option value="en_proceso">🟡 En proceso</option>
+          <option value="resuelta">🟢 Resuelta</option>
+        </select>
+      </div>
+
+      {/* Audio cliente */}
+      <div className="px-4 pb-3">
+        <p className="text-zinc-600 text-[0.6rem] font-semibold uppercase tracking-widest mb-1.5">🎤 Consulta del cliente</p>
+        <audio src={c.audio_url} controls className="w-full rounded-xl" style={{ colorScheme:'dark' }} />
+      </div>
+
+      <div className="mx-4 h-px bg-zinc-800 mb-3" />
+
+      {/* Sección respuesta */}
+      <div className="px-4 pb-4">
+        {c.audio_respuesta_url ? (
+          <div className="grid gap-2">
+            <p className="text-zinc-600 text-[0.6rem] font-semibold uppercase tracking-widest mb-1">🎙️ Tu respuesta</p>
+            <audio src={c.audio_respuesta_url} controls className="w-full rounded-xl" style={{ colorScheme:'dark' }} />
+            <div className="grid grid-cols-2 gap-2 mt-1">
+              <button onClick={copiarLink}
+                className={`py-2.5 rounded-2xl text-xs font-bold transition-all ${
+                  linkCopiado ? 'bg-emerald-500 text-white' : 'bg-zinc-800 text-zinc-400 active:scale-95'
+                }`}>
+                {linkCopiado ? '✓ Copiado' : '🔗 Copiar link'}
+              </button>
+              {c.telefono ? (
+                <a href={`https://wa.me/${c.telefono.replace(/\D/g,'')}?text=${waMsg}`}
+                  target="_blank" rel="noopener noreferrer"
+                  className="py-2.5 rounded-2xl text-xs font-bold bg-[#25D366]/10 text-[#25D366] text-center active:scale-95 transition-all">
+                  📲 Enviar por WA
+                </a>
+              ) : (
+                <button onClick={copiarLink}
+                  className="py-2.5 rounded-2xl text-xs font-bold bg-zinc-800 text-zinc-500">
+                  Compartir link
+                </button>
+              )}
+            </div>
+          </div>
+
+        ) : fase === 'idle' ? (
+          <button onClick={() => setFase('listo')}
+            className="w-full py-3 rounded-2xl bg-zinc-800 text-zinc-400 text-sm font-bold flex items-center justify-center gap-2 active:scale-95 transition-all hover:bg-zinc-700">
+            🎙️ <span>Grabar respuesta</span>
+          </button>
+
+        ) : fase === 'listo' ? (
+          <div className="grid gap-2">
+            <p className="text-zinc-500 text-xs text-center mb-1">Dale "Empezar" cuando estés listo</p>
+            <button onClick={iniciarGrabacion}
+              className="w-full py-3 rounded-2xl bg-emerald-500/10 text-emerald-400 text-sm font-bold ring-1 ring-emerald-500/30 active:scale-95 transition-all">
+              🟢 Empezar a grabar
+            </button>
+            <button onClick={() => setFase('idle')} className="text-zinc-700 text-xs text-center py-1">Cancelar</button>
+          </div>
+
+        ) : fase === 'grabando' ? (
+          <div className="grid gap-3">
+            <div className="flex items-center justify-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-red-500 animate-pulse" />
+              <span className="text-red-400 font-extrabold text-xl font-mono">{formatTiempo(segundos)}</span>
+            </div>
+            <button onClick={() => mrRef.current?.stop()}
+              className="w-full py-3 rounded-2xl bg-red-500/10 text-red-400 text-sm font-bold ring-1 ring-red-500/30 active:scale-95 transition-all">
+              ⬛ Detener grabación
+            </button>
+          </div>
+
+        ) : fase === 'grabado' && urlResp ? (
+          <div className="grid gap-2">
+            <p className="text-zinc-600 text-[0.6rem] font-semibold uppercase tracking-widest mb-1">Previa de tu respuesta</p>
+            <audio src={urlResp} controls className="w-full rounded-xl" style={{ colorScheme:'dark' }} />
+            <div className="grid grid-cols-2 gap-2 mt-1">
+              <button onClick={() => { setBlobResp(null); setUrlResp(null); setFase('idle') }}
+                className="py-2.5 rounded-2xl bg-zinc-800 text-zinc-500 text-xs font-bold active:scale-95">
+                Regrabar
+              </button>
+              <button onClick={guardar}
+                className="py-2.5 rounded-2xl bg-white text-zinc-900 text-xs font-bold active:scale-95">
+                Guardar ✓
+              </button>
+            </div>
+          </div>
+
+        ) : fase === 'guardando' ? (
+          <div className="flex items-center justify-center gap-2 py-3">
+            <div className="w-4 h-4 rounded-full border-2 border-emerald-500 border-t-transparent animate-spin" />
+            <span className="text-zinc-500 text-sm">Subiendo respuesta...</span>
+          </div>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+// ── Lista de consultas ────────────────────────────────────────────
+function Consultas() {
+  const [consultas, setConsultas] = useState([])
+
+  async function cargar() {
+    const { data } = await supabase
+      .from('consulta_sau')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(20)
+    setConsultas(data || [])
+  }
+
+  useEffect(() => { cargar() }, [])
+
+  const nuevas = consultas.filter(c => c.estado === 'nueva').length
+  if (consultas.length === 0) return null
+
+  return (
+    <div className="grid gap-3">
+      <p className="text-xs text-zinc-500 font-semibold uppercase tracking-widest flex items-center gap-2">
+        🎤 Audios entrantes
+        {nuevas > 0 && (
+          <span className="bg-red-500 text-white text-[0.6rem] font-black px-1.5 py-0.5 rounded-full animate-pulse">
+            {nuevas}
+          </span>
+        )}
+      </p>
+      {consultas.map(c => (
+        <ConsultaCard key={c.id} c={c} onActualizada={cargar} />
+      ))}
+      <div className="h-px bg-zinc-800" />
+    </div>
+  )
 }
 
 // ── Modal detalle cliente ─────────────────────────────────────────
 function DetalleCliente({ cliente, stats, onCerrar, onActualizado }) {
-  const [notas,    setNotas]    = useState(cliente.notas_admin || '')
-  const [estado,   setEstado]   = useState(cliente.estado_suscripcion || 'gratuito')
-  const [modulos,  setModulos]  = useState(cliente.modulos_activos || [])
-  const [guardando,setGuardando]= useState(false)
-  const [guardado, setGuardado] = useState(false)
+  const [notas,     setNotas]     = useState(cliente.notas_admin || '')
+  const [estado,    setEstado]    = useState(cliente.estado_suscripcion || 'gratuito')
+  const [modulos,   setModulos]   = useState(cliente.modulos_activos || [])
+  const [guardando, setGuardando] = useState(false)
+  const [guardado,  setGuardado]  = useState(false)
 
   async function guardar() {
     setGuardando(true)
@@ -141,11 +377,10 @@ function DetalleCliente({ cliente, stats, onCerrar, onActualizado }) {
         </div>
 
         <div className="px-5 py-4 grid gap-5">
-          {/* Stats */}
           <div className="grid grid-cols-3 gap-2">
             {[
-              { label: 'Ventas este mes', value: stats?.ventas_mes ?? '—' },
-              { label: 'Miembros',        value: stats?.miembros    ?? '—' },
+              { label: 'Ventas este mes', value: stats?.ventas_mes    ?? '—' },
+              { label: 'Miembros',        value: stats?.miembros      ?? '—' },
               { label: 'Última actividad',value: diasDesde(stats?.ultima_actividad) || 'Nunca' },
             ].map(s => (
               <div key={s.label} className="bg-zinc-800 rounded-2xl px-3 py-3 text-center">
@@ -155,7 +390,6 @@ function DetalleCliente({ cliente, stats, onCerrar, onActualizado }) {
             ))}
           </div>
 
-          {/* Adopción de módulos */}
           <div>
             <div className="flex items-center justify-between mb-2">
               <p className="text-xs text-zinc-500 font-semibold uppercase tracking-widest">Módulos activos</p>
@@ -175,21 +409,26 @@ function DetalleCliente({ cliente, stats, onCerrar, onActualizado }) {
                     } ${m.nucleo ? 'opacity-60 cursor-not-allowed' : ''}`}>
                     <span>{m.icon}</span>
                     <span className="flex-1 text-left truncate">{m.titulo.split(' ')[0]}</span>
-                    {!m.nucleo && <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center text-[0.5rem] font-black ${activo ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-zinc-600'}`}>{activo ? '✓' : ''}</span>}
+                    {!m.nucleo && (
+                      <span className={`w-4 h-4 rounded-full border-2 flex items-center justify-center text-[0.5rem] font-black ${
+                        activo ? 'border-emerald-500 bg-emerald-500 text-white' : 'border-zinc-600'
+                      }`}>{activo ? '✓' : ''}</span>
+                    )}
                   </button>
                 )
               })}
             </div>
           </div>
 
-          {/* Estado suscripción */}
           <div>
             <p className="text-xs text-zinc-500 font-semibold uppercase tracking-widest mb-2">Estado de cuenta</p>
             <div className="grid grid-cols-2 gap-2">
               {Object.entries(SUSCRIPCION).map(([id, cfg]) => (
                 <button key={id} onClick={() => setEstado(id)}
                   className={`py-2.5 rounded-2xl text-sm font-bold transition-all flex items-center justify-center gap-2 ${
-                    estado === id ? `${cfg.bg} ${cfg.text} ring-2 ring-current ring-offset-1 ring-offset-zinc-900` : 'bg-zinc-800 text-zinc-500'
+                    estado === id
+                      ? `${cfg.bg} ${cfg.text} ring-2 ring-current ring-offset-1 ring-offset-zinc-900`
+                      : 'bg-zinc-800 text-zinc-500'
                   }`}>
                   <span className={`w-2 h-2 rounded-full ${estado === id ? cfg.dot : 'bg-zinc-600'}`} />
                   {cfg.label}
@@ -198,7 +437,6 @@ function DetalleCliente({ cliente, stats, onCerrar, onActualizado }) {
             </div>
           </div>
 
-          {/* Notas */}
           <div>
             <p className="text-xs text-zinc-500 font-semibold uppercase tracking-widest mb-2">Mis notas privadas</p>
             <textarea value={notas} onChange={e => setNotas(e.target.value)} rows={3}
@@ -219,54 +457,7 @@ function DetalleCliente({ cliente, stats, onCerrar, onActualizado }) {
   )
 }
 
-// ── Consultas de audio ────────────────────────────────────────────
-function Consultas() {
-  const [consultas, setConsultas] = useState([])
-
-  async function cargar() {
-    const { data } = await supabase.from('consulta_sau').select('*').order('created_at', { ascending: false }).limit(10)
-    setConsultas(data || [])
-  }
-
-  async function cambiarEstado(id, estado) {
-    await supabase.from('consulta_sau').update({ estado }).eq('id', id)
-    cargar()
-  }
-
-  useEffect(() => { cargar() }, [])
-
-  const nuevas = consultas.filter(c => c.estado === 'nueva').length
-  if (consultas.length === 0) return null
-
-  return (
-    <div className="grid gap-3">
-      <p className="text-xs text-zinc-500 font-semibold uppercase tracking-widest flex items-center gap-2">
-        🎤 Audios entrantes
-        {nuevas > 0 && <span className="bg-red-500 text-white text-[0.6rem] font-black px-1.5 py-0.5 rounded-full animate-pulse">{nuevas}</span>}
-      </p>
-      {consultas.map(c => (
-        <div key={c.id} className="bg-zinc-900 border border-zinc-800 rounded-2xl p-4">
-          <div className="flex justify-between items-start mb-3">
-            <div>
-              <p className="text-white font-bold text-sm">{c.nombre || 'Anónimo'}</p>
-              <p className="text-zinc-600 text-xs">{c.telefono && `${c.telefono} · `}{new Date(c.created_at).toLocaleDateString('es-AR')}</p>
-            </div>
-            <select value={c.estado} onChange={e => cambiarEstado(c.id, e.target.value)}
-              className="text-xs font-bold px-2 py-1 rounded-full bg-zinc-800 border border-zinc-700 outline-none text-zinc-400">
-              <option value="nueva">🔴 Nueva</option>
-              <option value="en_proceso">🟡 En proceso</option>
-              <option value="resuelta">🟢 Resuelta</option>
-            </select>
-          </div>
-          <audio src={c.audio_url} controls className="w-full rounded-xl" />
-        </div>
-      ))}
-      <div className="h-px bg-zinc-800" />
-    </div>
-  )
-}
-
-// ── Burbuja ───────────────────────────────────────────────────────
+// ── Burbuja cliente ───────────────────────────────────────────────
 function Burbuja({ cliente, stats, index, onClick }) {
   const estado = cliente.estado_suscripcion || 'gratuito'
   const bur    = BURBUJA[estado] || BURBUJA.gratuito
@@ -294,15 +485,15 @@ function Burbuja({ cliente, stats, index, onClick }) {
   )
 }
 
-// ── Admin SAU ─────────────────────────────────────────────────────
+// ── Admin SAU principal ───────────────────────────────────────────
 export default function AdminSAU() {
-  const { profile, signOut } = useAuth()
+  const { signOut } = useAuth()
 
-  const [clientes,    setClientes]    = useState([])
-  const [statsMap,    setStatsMap]    = useState({})
-  const [cargando,    setCargando]    = useState(true)
-  const [seleccionado,setSeleccionado]= useState(null)
-  const [filtro,      setFiltro]      = useState('todos')
+  const [clientes,     setClientes]     = useState([])
+  const [statsMap,     setStatsMap]     = useState({})
+  const [cargando,     setCargando]     = useState(true)
+  const [seleccionado, setSeleccionado] = useState(null)
+  const [filtro,       setFiltro]       = useState('todos')
 
   async function cargar() {
     setCargando(true)
@@ -310,25 +501,22 @@ export default function AdminSAU() {
     if (!empresas) { setCargando(false); return }
     setClientes(empresas)
 
-    const ahora   = new Date()
-    const inicio  = new Date(ahora.getFullYear(), ahora.getMonth(), 1)
+    const ahora     = new Date()
+    const inicio    = new Date(ahora.getFullYear(), ahora.getMonth(), 1)
     const inicioAnt = new Date(ahora.getFullYear(), ahora.getMonth() - 1, 1)
-    const finAnt  = new Date(inicio)
+    const finAnt    = new Date(inicio)
 
-    const statsPromises = empresas.map(async e => {
-      const [{ count: ventas }, { count: ventasAnt }, { count: miembros }, { data: ultima }] = await Promise.all([
+    const arr = await Promise.all(empresas.map(async e => {
+      const [{ count: vm }, { count: va }, { count: mem }, { data: ult }] = await Promise.all([
         supabase.from('venta').select('id', { count:'exact', head:true }).eq('empresa_id', e.id).gte('created_at', inicio.toISOString()),
         supabase.from('venta').select('id', { count:'exact', head:true }).eq('empresa_id', e.id).gte('created_at', inicioAnt.toISOString()).lt('created_at', finAnt.toISOString()),
         supabase.from('membresia').select('id', { count:'exact', head:true }).eq('empresa_id', e.id).eq('activa', true),
-        supabase.from('venta').select('created_at').eq('empresa_id', e.id).order('created_at', { ascending:false }).limit(1),
+        supabase.from('venta').select('created_at').eq('empresa_id', e.id).order('created_at', { ascending: false }).limit(1),
       ])
-      const vm = ventas || 0
-      const va = ventasAnt || 0
-      const crecimiento = va > 0 ? Math.round(((vm - va) / va) * 100) : 0
-      return { id: e.id, ventas_mes: vm, ventas_mes_ant: va, crecimiento, miembros: miembros||0, ultima_actividad: ultima?.[0]?.created_at||null }
-    })
+      const crecimiento = (va||0) > 0 ? Math.round((((vm||0) - (va||0)) / (va||0)) * 100) : 0
+      return { id: e.id, ventas_mes: vm||0, crecimiento, miembros: mem||0, ultima_actividad: ult?.[0]?.created_at || null }
+    }))
 
-    const arr = await Promise.all(statsPromises)
     const map = {}; arr.forEach(s => { map[s.id] = s })
     setStatsMap(map)
     setCargando(false)
@@ -339,18 +527,18 @@ export default function AdminSAU() {
   const insights = useMemo(() => generarInsights(clientes, statsMap), [clientes, statsMap])
 
   const totales = useMemo(() => ({
-    clientes:      clientes.length,
-    activos:       clientes.filter(c => {
+    clientes:    clientes.length,
+    activos:     clientes.filter(c => {
       const d = statsMap[c.id]?.ultima_actividad
       return d && Math.floor((Date.now() - new Date(d).getTime()) / 86400000) < 7
     }).length,
-    totalVentas:   Object.values(statsMap).reduce((s, x) => s + (x.ventas_mes||0), 0),
-    riesgos:       insights.filter(i => i.tipo === 'riesgo').length,
+    totalVentas: Object.values(statsMap).reduce((s, x) => s + (x.ventas_mes||0), 0),
+    riesgos:     insights.filter(i => i.tipo === 'riesgo').length,
   }), [clientes, statsMap, insights])
 
   const clientesFiltrados = useMemo(() => {
     if (filtro === 'todos') return clientes
-    return clientes.filter(c => (c.estado_suscripcion||'gratuito') === filtro)
+    return clientes.filter(c => (c.estado_suscripcion || 'gratuito') === filtro)
   }, [clientes, filtro])
 
   const clienteSeleccionado = clientes.find(c => c.id === seleccionado)
@@ -359,11 +547,11 @@ export default function AdminSAU() {
     <div className="min-h-screen bg-zinc-950">
       <style>{FLOAT_STYLE}</style>
 
-      {/* Header Jarvis */}
       <header className="border-b border-zinc-800/50 px-5 py-4 sticky top-0 z-40 bg-zinc-950/95 backdrop-blur">
         <div className="max-w-2xl mx-auto flex items-center justify-between">
           <div className="flex items-center gap-3">
-            <img src="/logo.png" alt="SAU" className="w-8 h-8 rounded-xl" style={{ filter:'drop-shadow(0 0 8px rgba(0,200,120,0.4))' }} />
+            <img src="/logo.png" alt="SAU" className="w-8 h-8 rounded-xl"
+              style={{ filter: 'drop-shadow(0 0 8px rgba(0,200,120,0.4))' }} />
             <div>
               <p className="text-emerald-400 text-[0.6rem] font-bold uppercase tracking-widest">SAU · Sistema Activo</p>
               <h1 className="text-white font-extrabold leading-none">{saludo()}, Facundo</h1>
@@ -378,15 +566,13 @@ export default function AdminSAU() {
         {/* Pulso global */}
         <div className="grid grid-cols-4 gap-2">
           {[
-            { label: 'Negocios', value: totales.clientes,    color: 'text-white' },
+            { label: 'Negocios', value: totales.clientes,    color: 'text-white'       },
             { label: 'Activos',  value: totales.activos,     color: 'text-emerald-400' },
-            { label: 'Ventas',   value: totales.totalVentas, color: 'text-white', small: true },
+            { label: 'Ventas',   value: totales.totalVentas, color: 'text-white'       },
             { label: 'Alertas',  value: totales.riesgos,     color: totales.riesgos > 0 ? 'text-red-400' : 'text-zinc-600' },
           ].map(m => (
             <div key={m.label} className="bg-zinc-900 border border-zinc-800 rounded-2xl px-2 py-3 text-center">
-              <p className={`font-extrabold ${m.color} ${m.small ? 'text-base' : 'text-2xl'}`}>
-                {m.small ? `${totales.totalVentas}` : m.value}
-              </p>
+              <p className={`font-extrabold ${m.color} text-xl`}>{m.value}</p>
               <p className="text-[0.6rem] text-zinc-600 font-semibold uppercase tracking-widest mt-0.5">{m.label}</p>
             </div>
           ))}
@@ -418,12 +604,12 @@ export default function AdminSAU() {
           </div>
         )}
 
-        {/* Clientes */}
+        {/* Burbujas clientes */}
         <div>
           <div className="flex items-center justify-between mb-4">
             <p className="text-xs text-zinc-500 font-semibold uppercase tracking-widest">Tus clientes</p>
             <div className="flex gap-1">
-              {[['todos','Todos'],['activo','✓'],['atrasado','⚠'],['gratuito','◎']].map(([id,label]) => (
+              {[['todos','Todos'],['activo','✓'],['atrasado','⚠'],['gratuito','◎']].map(([id, label]) => (
                 <button key={id} onClick={() => setFiltro(id)}
                   className={`text-xs font-bold px-2.5 py-1 rounded-full transition-all ${
                     filtro === id ? 'bg-white text-zinc-900' : 'text-zinc-600 hover:text-zinc-400'
@@ -449,7 +635,8 @@ export default function AdminSAU() {
           ) : (
             <div className="flex flex-wrap justify-center gap-x-6 gap-y-8 py-2">
               {clientesFiltrados.map((c, i) => (
-                <Burbuja key={c.id} cliente={c} stats={statsMap[c.id]} index={i} onClick={() => setSeleccionado(c.id)} />
+                <Burbuja key={c.id} cliente={c} stats={statsMap[c.id]} index={i}
+                  onClick={() => setSeleccionado(c.id)} />
               ))}
             </div>
           )}

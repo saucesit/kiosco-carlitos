@@ -18,6 +18,7 @@ import Perfil from './pages/Perfil'
 import Unirse from './pages/Unirse'
 import AdminSAU from './pages/AdminSAU'
 import Landing from './pages/Landing'
+import Respuesta from './pages/Respuesta'
 import KioscoFiado from './App' // prototipo de fiado (Kiosco de Carlitos), se conserva intacto
 
 function Splash() {
@@ -67,6 +68,7 @@ export default function AppRouter() {
           <Route path="/unirse" element={<Unirse />} />
           <Route path="/prototipo" element={<KioscoFiado />} />
           <Route path="/quejate" element={<Landing />} />
+          <Route path="/r/:id" element={<Respuesta />} />
 
           <Route
             element={

@@ -1,6 +1,21 @@
 import { useState, useRef, useEffect } from 'react'
 import { supabase } from '../lib/supabase'
 
+// ── Detecta el mejor formato de audio disponible (fix iOS Safari) ─
+function getMimeType() {
+  if (typeof MediaRecorder === 'undefined') return 'audio/mp4'
+  const tipos = ['audio/webm;codecs=opus', 'audio/webm', 'audio/ogg;codecs=opus', 'audio/mp4']
+  for (const t of tipos) {
+    if (MediaRecorder.isTypeSupported(t)) return t
+  }
+  return 'audio/mp4'
+}
+function getExt(mime) {
+  if (mime.includes('webm')) return 'webm'
+  if (mime.includes('ogg'))  return 'ogg'
+  return 'mp4'
+}
+
 const CANSADO_DE = [
   'no saber cuánto vendiste al final del día',
   'que el fiado se pierda y nunca lo cobrés',
@@ -87,12 +102,13 @@ export default function Landing() {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
       streamRef.current = stream
-      const mr = new MediaRecorder(stream)
+      const mimeType = getMimeType()
+      const mr = new MediaRecorder(stream, mimeType ? { mimeType } : {})
       mediaRecorderRef.current = mr
       chunksRef.current = []
       mr.ondataavailable = e => { if (e.data.size > 0) chunksRef.current.push(e.data) }
       mr.onstop = () => {
-        const blob = new Blob(chunksRef.current, { type: 'audio/webm' })
+        const blob = new Blob(chunksRef.current, { type: mimeType || 'audio/mp4' })
         setAudioBlob(blob)
         setAudioURL(URL.createObjectURL(blob))
         setEstado('grabado')
@@ -122,10 +138,11 @@ export default function Landing() {
     setEstado('enviando')
     setError(null)
     try {
-      const fileName = `consulta-${Date.now()}.webm`
+      const mimeType = audioBlob.type || getMimeType()
+      const fileName = `consulta-${Date.now()}.${getExt(mimeType)}`
       const { error: uploadError } = await supabase.storage
         .from('consultas')
-        .upload(fileName, audioBlob, { contentType: 'audio/webm', upsert: false })
+        .upload(fileName, audioBlob, { contentType: mimeType, upsert: false })
       if (uploadError) throw uploadError
 
       const { data: { publicUrl } } = supabase.storage
