@@ -251,55 +251,83 @@ export default function Landing() {
           </div>
         )}
 
-        {/* Audio grabado */}
+        {/* Audio grabado — pantalla de contacto */}
         {estado === 'grabado' && audioURL && (
-          <div className="w-full grid gap-4">
-            <div className="bg-zinc-900 rounded-2xl p-4 border border-zinc-800">
-              <p className="text-zinc-400 text-xs font-semibold uppercase tracking-widest mb-3">Tu audio ({formatTiempo(segundos)})</p>
-              <audio src={audioURL} controls className="w-full rounded-xl" />
+          <div className="w-full flex flex-col items-center gap-6">
+
+            {/* Confirmación del audio */}
+            <div className="flex flex-col items-center gap-2">
+              <div className="w-20 h-20 rounded-full bg-emerald-500/20 ring-4 ring-emerald-500/30 flex items-center justify-center">
+                <span className="text-4xl">🎤</span>
+              </div>
+              <p className="text-white font-extrabold text-xl text-center">¡Tu queja fue grabada!</p>
+              <p className="text-emerald-400 text-sm font-semibold text-center">
+                La respuesta se está procesando...
+              </p>
+              <p className="text-zinc-500 text-xs text-center">
+                {formatTiempo(segundos)} grabados
+              </p>
             </div>
 
-            {/* Datos de contacto */}
-            <div className="grid gap-2">
-              <p className="text-zinc-400 text-sm text-center leading-snug">
-                ¿A dónde te mandamos la respuesta? 👇
-              </p>
-              <input type="text" value={nombre} onChange={e => setNombre(e.target.value)}
+            {/* Pedido de WhatsApp — el foco total */}
+            <div className="w-full bg-zinc-900 border border-zinc-700 rounded-3xl p-5 grid gap-4">
+              <div className="text-center">
+                <p className="text-white font-extrabold text-lg leading-tight">
+                  ¿A dónde te mandamos la respuesta?
+                </p>
+                <p className="text-zinc-400 text-sm mt-1">
+                  En minutos te llega por WhatsApp
+                </p>
+              </div>
+
+              <input
+                type="text"
+                value={nombre}
+                onChange={e => setNombre(e.target.value)}
                 placeholder="Tu nombre"
-                className="w-full px-4 py-3 rounded-2xl bg-zinc-900 text-white placeholder:text-zinc-600 outline-none border border-zinc-800 focus:border-emerald-500 transition-colors"
+                className="w-full px-4 py-3 rounded-2xl bg-zinc-800 text-white placeholder:text-zinc-600 outline-none border border-zinc-700 focus:border-emerald-500 transition-colors text-base"
               />
-              <div className="relative">
-                <input type="tel" inputMode="numeric" value={telefono} onChange={e => setTelefono(e.target.value)}
-                  placeholder="Tu WhatsApp — para enviarte la respuesta"
-                  className={`w-full px-4 py-3 rounded-2xl bg-zinc-900 text-white placeholder:text-zinc-600 outline-none border transition-colors ${
-                    telefono ? 'border-emerald-500' : 'border-zinc-700'
-                  }`}
-                />
-                {!telefono && (
-                  <p className="text-amber-500 text-xs mt-1 px-1">
-                    ⚠️ Sin WhatsApp no podemos enviarte la respuesta
-                  </p>
-                )}
+
+              <div>
+                <div className="relative">
+                  <span className="absolute left-4 top-1/2 -translate-y-1/2 text-xl">📱</span>
+                  <input
+                    type="tel"
+                    inputMode="numeric"
+                    value={telefono}
+                    onChange={e => setTelefono(e.target.value)}
+                    placeholder="Tu número de WhatsApp"
+                    className={`w-full pl-12 pr-4 py-4 rounded-2xl bg-zinc-800 text-white placeholder:text-zinc-500 outline-none border-2 transition-all text-base font-semibold ${
+                      telefono ? 'border-emerald-500 bg-emerald-950/20' : 'border-zinc-600'
+                    }`}
+                    autoFocus
+                  />
+                </div>
                 {telefono && (
-                  <p className="text-emerald-400 text-xs mt-1 px-1">
-                    ✓ Te respondemos por acá
+                  <p className="text-emerald-400 text-xs mt-2 px-1 font-semibold">
+                    ✓ Perfecto, te respondemos por acá
                   </p>
                 )}
               </div>
+
+              {error && <p className="text-red-400 text-sm text-center">{error}</p>}
+
+              <button
+                onClick={enviar}
+                disabled={!telefono}
+                className={`w-full py-4 rounded-3xl font-extrabold text-base active:scale-95 transition-all ${
+                  telefono
+                    ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-900/50'
+                    : 'bg-zinc-700 text-zinc-500 cursor-not-allowed'
+                }`}
+              >
+                {telefono ? 'Recibir respuesta por WA 🚀' : 'Ingresá tu WhatsApp para continuar'}
+              </button>
             </div>
 
-            {error && <p className="text-red-400 text-sm text-center">{error}</p>}
-
-            <div className="grid grid-cols-2 gap-3">
-              <button onClick={regrabar}
-                className="py-4 rounded-3xl bg-zinc-800 text-zinc-400 font-bold active:scale-95 transition-all">
-                Regrabar
-              </button>
-              <button onClick={enviar}
-                className="py-4 rounded-3xl bg-emerald-500 text-white font-extrabold shadow-lg shadow-emerald-900/50 active:scale-95 transition-all">
-                Mandar 🚀
-              </button>
-            </div>
+            <button onClick={regrabar} className="text-zinc-600 text-xs underline underline-offset-4">
+              Regrabar el audio
+            </button>
           </div>
         )}
 
