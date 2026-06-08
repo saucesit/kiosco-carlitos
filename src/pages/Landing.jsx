@@ -259,16 +259,33 @@ export default function Landing() {
               <audio src={audioURL} controls className="w-full rounded-xl" />
             </div>
 
-            {/* Datos opcionales */}
+            {/* Datos de contacto */}
             <div className="grid gap-2">
+              <p className="text-zinc-400 text-sm text-center leading-snug">
+                ¿A dónde te mandamos la respuesta? 👇
+              </p>
               <input type="text" value={nombre} onChange={e => setNombre(e.target.value)}
-                placeholder="Tu nombre (opcional)"
+                placeholder="Tu nombre"
                 className="w-full px-4 py-3 rounded-2xl bg-zinc-900 text-white placeholder:text-zinc-600 outline-none border border-zinc-800 focus:border-emerald-500 transition-colors"
               />
-              <input type="tel" inputMode="numeric" value={telefono} onChange={e => setTelefono(e.target.value)}
-                placeholder="Tu WhatsApp (opcional)"
-                className="w-full px-4 py-3 rounded-2xl bg-zinc-900 text-white placeholder:text-zinc-600 outline-none border border-zinc-800 focus:border-emerald-500 transition-colors"
-              />
+              <div className="relative">
+                <input type="tel" inputMode="numeric" value={telefono} onChange={e => setTelefono(e.target.value)}
+                  placeholder="Tu WhatsApp — para enviarte la respuesta"
+                  className={`w-full px-4 py-3 rounded-2xl bg-zinc-900 text-white placeholder:text-zinc-600 outline-none border transition-colors ${
+                    telefono ? 'border-emerald-500' : 'border-zinc-700'
+                  }`}
+                />
+                {!telefono && (
+                  <p className="text-amber-500 text-xs mt-1 px-1">
+                    ⚠️ Sin WhatsApp no podemos enviarte la respuesta
+                  </p>
+                )}
+                {telefono && (
+                  <p className="text-emerald-400 text-xs mt-1 px-1">
+                    ✓ Te respondemos por acá
+                  </p>
+                )}
+              </div>
             </div>
 
             {error && <p className="text-red-400 text-sm text-center">{error}</p>}
